@@ -25,7 +25,7 @@ try:
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.common.exceptions import TimeoutException
-    from webdriver_manager.microsoft import EdgeChromiumDriverManager
+    from webdriver_manager.chrome import ChromeDriverManager
     
     import google.generativeai as genai
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -133,73 +133,67 @@ class AISearchAgent:
             raise
 
     def _initialize_pc_browser(self) -> None:
-        """Initialize Microsoft Edge browser in PC mode."""
-        try:
-            # Edge options for PC simulation
-            edge_options = Options()
-            edge_options.add_argument("--disable-blink-features=AutomationControlled")
-            edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            edge_options.add_experimental_option('useAutomationExtension', False)
-            edge_options.add_argument("--disable-extensions")
-            edge_options.add_argument("--no-sandbox")
-            edge_options.add_argument("--disable-dev-shm-usage")
-            edge_options.add_argument("--disable-gpu")
-            edge_options.add_argument("--window-size=1280,1024")
-            edge_options.add_argument(f"--user-agent={self.user_agent.desktop}")
-            
-            # Set up driver service
-            if self.config['edge_driver_path'] == 'auto':
-                service = Service(EdgeChromiumDriverManager().install())
-            else:
-                service = Service(self.config['edge_driver_path'])
-            
-            # Initialize driver
-            self.pc_driver = webdriver.Edge(service=service, options=edge_options)
-            
-            # Execute script to remove webdriver property
-            self.pc_driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            self.logger.info(f"{Fore.GREEN}[OK] PC Browser initialized successfully")
-            
-        except Exception as e:
-            self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize PC Browser: {e}")
-            raise
+    """Initialize Microsoft Edge browser in PC mode."""
+    try:
+        # Chrome options for PC simulation in headless mode
+        chrome_options = Options()
+        chrome_options.add_argument("--headless=new")  # Enable headless mode
+        chrome_options.add_argument("--disable-gpu")  # Disable GPU acceleration
+        chrome_options.add_argument("--window-size=1280,1024")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument(f"--user-agent={self.user_agent.desktop}")
+
+        # Set up driver service
+        if self.config['edge_driver_path'] == 'auto':
+            service = Service(ChromeDriverManager().install())
+        else:
+            service = Service(self.config['edge_driver_path'])
+
+        # Initialize driver
+        self.pc_driver = webdriver.Chrome(service=service, options=chrome_options)
+
+        # Execute script to remove webdriver property
+        self.pc_driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        self.logger.info(f"{Fore.GREEN}[OK] PC Browser initialized successfully in headless mode")
+
+    except Exception as e:
+        self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize PC Browser: {e}")
+        raise
 
     def _initialize_mobile_browser(self) -> None:
-        """Initialize Microsoft Edge browser in Mobile mode."""
-        try:
-            # Edge options for Mobile simulation
-            edge_options = Options()
-            edge_options.add_argument("--disable-blink-features=AutomationControlled")
-            edge_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            edge_options.add_experimental_option('useAutomationExtension', False)
-            edge_options.add_argument("--disable-extensions")
-            edge_options.add_argument("--no-sandbox")
-            edge_options.add_argument("--disable-dev-shm-usage")
-            edge_options.add_argument("--disable-gpu")
-            edge_options.add_argument("--window-size=375,812")
+    """Initialize Microsoft Edge browser in Mobile mode."""
+    try:
+        # Chrome options for Mobile simulation in headless mode
+        chrome_options = Options()
+        chrome_options.add_argument("--headless=new")  # Enable headless mode
+        chrome_options.add_argument("--disable-gpu")  # Disable GPU acceleration
+        chrome_options.add_argument("--window-size=375,812")
 
-            # Set up mobile emulation with a different device name
-            mobile_emulation = {
-                "deviceMetrics": {"width": 375, "height": 812, "pixelRatio": 3.0},
-                "userAgent": "Mozilla/5.0 (Linux; Android 10; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Mobile Safari/537.36"
-            }
-            edge_options.add_experimental_option("mobileEmulation", mobile_emulation)
-            
-            # Set up driver service
-            if self.config['edge_driver_path'] == 'auto':
-                service = Service(EdgeChromiumDriverManager().install())
-            else:
-                service = Service(self.config['edge_driver_path'])
-            
-            # Initialize driver
-            self.mobile_driver = webdriver.Edge(service=service, options=edge_options)
-            
-            self.logger.info(f"{Fore.GREEN}[OK] Mobile Browser initialized successfully")
-            
-        except Exception as e:
-            self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize Mobile Browser: {e}")
-            raise
+        # Set up mobile emulation with a different device name
+        mobile_emulation = {
+            "deviceMetrics": {"width": 375, "height": 812, "pixelRatio": 3.0},
+            "userAgent": "Mozilla/5.0 (Linux; Android 10; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Mobile Safari/537.36"
+        }
+        chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
+
+        # Set up driver service
+        if self.config['edge_driver_path'] == 'auto':
+            service = Service(ChromeDriverManager().install())
+        else:
+            service = Service(self.config['edge_driver_path'])
+
+        # Initialize driver
+        self.mobile_driver = webdriver.Chrome(service=service, options=chrome_options)
+
+        self.logger.info(f"{Fore.GREEN}[OK] Mobile Browser initialized successfully in headless mode")
+
+    except Exception as e:
+        self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize Mobile Browser: {e}")
+        raise
 
     def _setup_csv_logging(self) -> None:
         """Setup CSV logging for search results."""
