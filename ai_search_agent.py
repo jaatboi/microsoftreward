@@ -17,8 +17,8 @@ import traceback
 # Third-party imports
 try:
     from selenium import webdriver
-    from selenium.webdriver.edge.service import Service
-    from selenium.webdriver.edge.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.common.by import By
     from selenium.webdriver.common.keys import Keys
     from selenium.webdriver.support.ui import WebDriverWait
@@ -49,8 +49,8 @@ class AISearchAgent:
         """Initialize the search agent with configuration."""
         self.load_config(config_file)
         self.setup_logging()
-        self.pc_driver: Optional[webdriver.Edge] = None
-        self.mobile_driver: Optional[webdriver.Edge] = None
+        self.pc_driver: Optional[webdriver.Chrome] = None
+        self.mobile_driver: Optional[webdriver.Chrome] = None
         self.ai_client = None
         self.pc_search_history: List[str] = []
         self.mobile_search_history: List[str] = []
@@ -88,7 +88,8 @@ class AISearchAgent:
             'log_level': os.getenv('LOG_LEVEL', 'INFO'),
             'max_cycles': int(os.getenv('MAX_SEARCH_CYCLES', '32')),
             'min_delay': int(os.getenv('MIN_DELAY', '10')),
-            'max_delay': int(os.getenv('MAX_DELAY', '59'))
+            'max_delay': int(os.getenv('MAX_DELAY', '59')),
+            'proxy': os.getenv('PROXY', None)
         }
         
         if not self.config['gemini_api_key'] or self.config['gemini_api_key'] == 'your_gemini_api_key_here':
@@ -133,67 +134,77 @@ class AISearchAgent:
             raise
 
     def _initialize_pc_browser(self) -> None:
-    """Initialize Microsoft Edge browser in PC mode."""
-    try:
-        # Chrome options for PC simulation in headless mode
-        chrome_options = Options()
-        chrome_options.add_argument("--headless=new")  # Enable headless mode
-        chrome_options.add_argument("--disable-gpu")  # Disable GPU acceleration
-        chrome_options.add_argument("--window-size=1280,1024")
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument(f"--user-agent={self.user_agent.desktop}")
+        """Initialize Chrome browser in PC mode with proxy support."""
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument("--headless=new")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1280,1024")
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument(f"--user-agent={self.user_agent.desktop}")
 
-        # Set up driver service
-        if self.config['edge_driver_path'] == 'auto':
-            service = Service(ChromeDriverManager().install())
-        else:
-            service = Service(self.config['edge_driver_path'])
+            # Set proxy if provided
+            if self.config['proxy']:
+                chrome_proxy = Proxy()
+                chrome_proxy.proxy_type = ProxyType.MANUAL
+                chrome_proxy.http_proxy = self.config['proxy']
+                chrome_proxy.ssl_proxy = self.config['proxy']
+                capabilities = webdriver.DesiredCapabilities.CHROME.copy()
+                chrome_proxy.add_to_capabilities(capabilities)
+                chrome_options.capabilities = capabilities
 
-        # Initialize driver
-        self.pc_driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Initialize driver with proxy
+            if self.config['edge_driver_path'] == 'auto':
+                service = Service(ChromeDriverManager().install())
+            else:
+                service = Service(self.config['edge_driver_path'])
+            self.pc_driver = webdriver.Chrome(service=service, options=chrome_options)
 
-        # Execute script to remove webdriver property
-        self.pc_driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            self.logger.info(f"{Fore.GREEN}[OK] PC Browser initialized successfully in headless mode")
 
-        self.logger.info(f"{Fore.GREEN}[OK] PC Browser initialized successfully in headless mode")
-
-    except Exception as e:
-        self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize PC Browser: {e}")
-        raise
+        except Exception as e:
+            self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize PC Browser: {e}")
+            raise
 
     def _initialize_mobile_browser(self) -> None:
-    """Initialize Microsoft Edge browser in Mobile mode."""
-    try:
-        # Chrome options for Mobile simulation in headless mode
-        chrome_options = Options()
-        chrome_options.add_argument("--headless=new")  # Enable headless mode
-        chrome_options.add_argument("--disable-gpu")  # Disable GPU acceleration
-        chrome_options.add_argument("--window-size=375,812")
+        """Initialize Chrome browser in Mobile mode with proxy support."""
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument("--headless=new")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=375,812")
 
-        # Set up mobile emulation with a different device name
-        mobile_emulation = {
-            "deviceMetrics": {"width": 375, "height": 812, "pixelRatio": 3.0},
-            "userAgent": "Mozilla/5.0 (Linux; Android 10; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Mobile Safari/537.36"
-        }
-        chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
+            mobile_emulation = {
+                "deviceMetrics": {"width": 375, "height": 812, "pixelRatio": 3.0},
+                "userAgent": "Mozilla/5.0 (Linux; Android 10; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Mobile Safari/537.36"
+            }
+            chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
 
-        # Set up driver service
-        if self.config['edge_driver_path'] == 'auto':
-            service = Service(ChromeDriverManager().install())
-        else:
-            service = Service(self.config['edge_driver_path'])
+            # Set proxy if provided
+            if self.config['proxy']:
+                chrome_proxy = Proxy()
+                chrome_proxy.proxy_type = ProxyType.MANUAL
+                chrome_proxy.http_proxy = self.config['proxy']
+                chrome_proxy.ssl_proxy = self.config['proxy']
+                capabilities = webdriver.DesiredCapabilities.CHROME.copy()
+                chrome_proxy.add_to_capabilities(capabilities)
+                chrome_options.capabilities = capabilities
 
-        # Initialize driver
-        self.mobile_driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Initialize driver with proxy
+            if self.config['edge_driver_path'] == 'auto':
+                service = Service(ChromeDriverManager().install())
+            else:
+                service = Service(self.config['edge_driver_path'])
+            self.mobile_driver = webdriver.Chrome(service=service, options=chrome_options)
 
-        self.logger.info(f"{Fore.GREEN}[OK] Mobile Browser initialized successfully in headless mode")
+            self.logger.info(f"{Fore.GREEN}[OK] Mobile Browser initialized successfully in headless mode")
 
-    except Exception as e:
-        self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize Mobile Browser: {e}")
-        raise
+        except Exception as e:
+            self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize Mobile Browser: {e}")
+            raise
 
     def _setup_csv_logging(self) -> None:
         """Setup CSV logging for search results."""
@@ -244,7 +255,8 @@ class AISearchAgent:
                 
                 response = self.ai_client.generate_content(prompt)
                 query = response.text.strip().strip('"').strip("'")
-                  # Validate query
+                
+                # Validate query
                 if self._validate_query(query):
                     self.pc_search_history.append(query)
                     self.mobile_search_history.append(query)
@@ -259,7 +271,7 @@ class AISearchAgent:
             except Exception as e:
                 self.logger.warning(f"{Fore.YELLOW}[WARNING] Query generation attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(2 ** attempt) # Exponential backoff
         
         # Fallback query
         fallback_query = f"what is {random.choice(self.search_params['categories'])}"
@@ -326,9 +338,6 @@ class AISearchAgent:
                 WebDriverWait(driver, 15).until(
                     EC.presence_of_element_located((By.ID, "b_results"))
                 )
-
-                # Random mouse movement and scrolling
-                self._simulate_human_behavior(driver)
 
                 execution_time = time.time() - start_time
                 current_url = driver.current_url
@@ -573,17 +582,97 @@ class AISearchAgent:
         """Context manager exit."""
         self.cleanup()
 
+    def load_credentials(self, filename='credentials.json'):
+        """Load Microsoft account credentials from a JSON file."""
+        try:
+            with open(filename, 'r') as f:
+                self.credentials = json.load(f)
+            self.logger.info(f"{Fore.GREEN}[OK] Loaded {len(self.credentials['accounts'])} accounts")
+        except Exception as e:
+            self.logger.error(f"{Fore.RED}[FAIL] Failed to load credentials: {e}")
+            self.credentials = None
+
+    def login_to_account(self, email, password, driver):
+        """Log in to a Microsoft account."""
+        try:
+            driver.get("https://login.live.com")
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.ID, "i0116")))
+
+            # Enter email
+            email_field = driver.find_element(By.ID, "i0116")
+            email_field.clear()
+            email_field.send_keys(email)
+            driver.find_element(By.ID, "idSIButton9").click()
+
+            # Enter password
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.ID, "i0118")))
+            password_field = driver.find_element(By.ID, "i0118")
+            password_field.clear()
+            password_field.send_keys(password)
+            driver.find_element(By.ID, "idSIButton9").click()
+
+            # Handle 'Stay signed in' prompt
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.ID, "idSIButton9")))
+            driver.find_element(By.ID, "idSIButton9").click()
+
+            self.logger.info(f"{Fore.GREEN}[OK] Logged in to {email}")
+            return True
+        except Exception as e:
+            self.logger.error(f"{Fore.RED}[FAIL] Failed to log in to {email}: {e}")
+            return False
+
+    def run_with_multiple_accounts(self):
+        """Run the search agent for multiple accounts."""
+        if not hasattr(self, 'credentials') or not self.credentials:
+            self.logger.error(f"{Fore.RED}[FAIL] No credentials loaded")
+            return
+
+        for account in self.credentials['accounts']:
+            email = account['email']
+            password = account['password']
+
+            # Initialize PC driver
+            self.pc_driver = None
+            self._initialize_pc_browser()
+
+            # Log in to the account
+            if self.login_to_account(email, password, self.pc_driver):
+                # Perform searches for this account
+                self.pc_search_history = []
+                self.mobile_search_history = []
+                self.run(pc_cycles=self.config['max_cycles'], mobile_cycles=0)
+
+            # Clean up PC driver
+            if self.pc_driver:
+                self.pc_driver.quit()
+
+            # Initialize Mobile driver
+            self.mobile_driver = None
+            self._initialize_mobile_browser()
+
+            # Log in to the account again for mobile searches
+            if self.login_to_account(email, password, self.mobile_driver):
+                # Perform mobile searches for this account
+                self.run(pc_cycles=0, mobile_cycles=self.config['max_cycles'])
+
+            # Clean up Mobile driver
+            if self.mobile_driver:
+                self.mobile_driver.quit()
+
+            self.logger.info(f"{Fore.GREEN}[OK] Completed processing for {email}")
+
 
 def main():
     """Main entry point."""
     try:
         with AISearchAgent() as agent:
-            agent.run(pc_cycles=31, mobile_cycles=21)  # Example: 16 PC cycles and 20 mobile cycles
+            agent.load_credentials()
+            agent.run_with_multiple_accounts()
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}[WARNING] Program interrupted by user")
     except Exception as e:
         print(f"\n{Fore.RED}[FATAL] Fatal error: {e}")
-        if agent.config.get('debug_mode'):
+        if 'agent' in locals() and agent.config.get('debug_mode'):
             traceback.print_exc()
     finally:
         print(f"\n{Fore.CYAN}[EXIT] AI Search Agent terminated")
