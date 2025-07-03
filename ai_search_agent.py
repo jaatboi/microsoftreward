@@ -25,6 +25,7 @@ try:
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.common.exceptions import TimeoutException
+    from seleniumwire import webdriver as seleniumwire_webdriver  # Import seleniumwire
     from webdriver_manager.chrome import ChromeDriverManager
     
     import google.generativeai as genai
@@ -49,13 +50,14 @@ class AISearchAgent:
         """Initialize the search agent with configuration."""
         self.load_config(config_file)
         self.setup_logging()
-        self.pc_driver: Optional[webdriver.Chrome] = None
-        self.mobile_driver: Optional[webdriver.Chrome] = None
+        self.pc_driver: Optional[seleniumwire_webdriver.Chrome] = None  # Use seleniumwire's webdriver
+        self.mobile_driver: Optional[seleniumwire_webdriver.Chrome] = None
         self.ai_client = None
         self.pc_search_history: List[str] = []
         self.mobile_search_history: List[str] = []
         self.user_agent = UserAgent()
         self.session_start_time = datetime.now()
+        self.proxies = self.load_proxies()  # Load proxies
         
         # Search parameters
         self.search_params = {
@@ -133,7 +135,18 @@ class AISearchAgent:
             self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize Gemini AI: {e}")
             raise
 
-    def _initialize_pc_browser(self) -> None:
+    def load_proxies(self, filename='proxies.json'):
+        """Load proxies from a JSON file."""
+        try:
+            with open(filename, 'r') as f:
+                self.proxies = json.load(f)
+            self.logger.info(f"{Fore.GREEN}[OK] Loaded {len(self.proxies)} proxies")
+            return self.proxies
+        except Exception as e:
+            self.logger.error(f"{Fore.RED}[FAIL] Failed to load proxies: {e}")
+            return []
+
+    def _initialize_pc_browser(self, proxy=None) -> None:
         """Initialize Chrome browser in PC mode with proxy support."""
         try:
             chrome_options = Options()
@@ -147,21 +160,27 @@ class AISearchAgent:
             chrome_options.add_argument(f"--user-agent={self.user_agent.desktop}")
 
             # Set proxy if provided
-            if self.config['proxy']:
-                chrome_proxy = Proxy()
-                chrome_proxy.proxy_type = ProxyType.MANUAL
-                chrome_proxy.http_proxy = self.config['proxy']
-                chrome_proxy.ssl_proxy = self.config['proxy']
-                capabilities = webdriver.DesiredCapabilities.CHROME.copy()
-                chrome_proxy.add_to_capabilities(capabilities)
-                chrome_options.capabilities = capabilities
-
-            # Initialize driver with proxy
-            if self.config['edge_driver_path'] == 'auto':
-                service = Service(ChromeDriverManager().install())
+            if proxy:
+                if 'username' in proxy and 'password' in proxy:
+                    # Format: http://username:password@host:port
+                    proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
+                else:
+                    # Format: http://host:port
+                    proxy_url = f"http://{proxy['host']}:{proxy['port']}"
+                
+                self.pc_driver = seleniumwire_webdriver.Chrome(
+                    service=Service(ChromeDriverManager().install()),
+                    options=chrome_options
+                )
+                self.pc_driver.proxy = proxy_url
+                self.pc_driver.header_overrides = {
+                    'Proxy-Authorization': f"Basic {self._encode_proxy_auth(proxy)}" if 'username' in proxy else None
+                }
             else:
-                service = Service(self.config['edge_driver_path'])
-            self.pc_driver = webdriver.Chrome(service=service, options=chrome_options)
+                self.pc_driver = seleniumwire_webdriver.Chrome(
+                    service=Service(ChromeDriverManager().install()),
+                    options=chrome_options
+                )
 
             self.logger.info(f"{Fore.GREEN}[OK] PC Browser initialized successfully in headless mode")
 
@@ -169,7 +188,13 @@ class AISearchAgent:
             self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize PC Browser: {e}")
             raise
 
-    def _initialize_mobile_browser(self) -> None:
+    def _encode_proxy_auth(self, proxy):
+        """Encode proxy authentication credentials."""
+        import base64
+        auth = f"{proxy['username']}:{proxy['password']}"
+        return base64.b64encode(auth.encode()).decode()
+
+    def _initialize_mobile_browser(self, proxy=None) -> None:
         """Initialize Chrome browser in Mobile mode with proxy support."""
         try:
             chrome_options = Options()
@@ -184,21 +209,27 @@ class AISearchAgent:
             chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
 
             # Set proxy if provided
-            if self.config['proxy']:
-                chrome_proxy = Proxy()
-                chrome_proxy.proxy_type = ProxyType.MANUAL
-                chrome_proxy.http_proxy = self.config['proxy']
-                chrome_proxy.ssl_proxy = self.config['proxy']
-                capabilities = webdriver.DesiredCapabilities.CHROME.copy()
-                chrome_proxy.add_to_capabilities(capabilities)
-                chrome_options.capabilities = capabilities
-
-            # Initialize driver with proxy
-            if self.config['edge_driver_path'] == 'auto':
-                service = Service(ChromeDriverManager().install())
+            if proxy:
+                if 'username' in proxy and 'password' in proxy:
+                    # Format: http://username:password@host:port
+                    proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
+                else:
+                    # Format: http://host:port
+                    proxy_url = f"http://{proxy['host']}:{proxy['port']}"
+                
+                self.mobile_driver = seleniumwire_webdriver.Chrome(
+                    service=Service(ChromeDriverManager().install()),
+                    options=chrome_options
+                )
+                self.mobile_driver.proxy = proxy_url
+                self.mobile_driver.header_overrides = {
+                    'Proxy-Authorization': f"Basic {self._encode_proxy_auth(proxy)}" if 'username' in proxy else None
+                }
             else:
-                service = Service(self.config['edge_driver_path'])
-            self.mobile_driver = webdriver.Chrome(service=service, options=chrome_options)
+                self.mobile_driver = seleniumwire_webdriver.Chrome(
+                    service=Service(ChromeDriverManager().install()),
+                    options=chrome_options
+                )
 
             self.logger.info(f"{Fore.GREEN}[OK] Mobile Browser initialized successfully in headless mode")
 
@@ -631,9 +662,12 @@ class AISearchAgent:
             email = account['email']
             password = account['password']
 
+            # Select a proxy
+            proxy = self._get_next_proxy()
+
             # Initialize PC driver
             self.pc_driver = None
-            self._initialize_pc_browser()
+            self._initialize_pc_browser(proxy)
 
             # Log in to the account
             if self.login_to_account(email, password, self.pc_driver):
@@ -648,7 +682,7 @@ class AISearchAgent:
 
             # Initialize Mobile driver
             self.mobile_driver = None
-            self._initialize_mobile_browser()
+            self._initialize_mobile_browser(proxy)
 
             # Log in to the account again for mobile searches
             if self.login_to_account(email, password, self.mobile_driver):
@@ -660,6 +694,20 @@ class AISearchAgent:
                 self.mobile_driver.quit()
 
             self.logger.info(f"{Fore.GREEN}[OK] Completed processing for {email}")
+
+    def _get_next_proxy(self):
+        """Get the next available proxy from the list."""
+        if not self.proxies:
+            self.logger.warning(f"{Fore.YELLOW}[WARNING] No proxies available")
+            return None
+        
+        # Simple round-robin approach
+        if not hasattr(self, 'current_proxy_index'):
+            self.current_proxy_index = 0
+        else:
+            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxies)
+        
+        return self.proxies[self.current_proxy_index]
 
 
 def main():
