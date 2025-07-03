@@ -12,9 +12,11 @@ import logging
 import csv
 from datetime import datetime
 from typing import List, Optional, Tuple, Dict
-import traceback
 import json
 import warnings
+
+# Suppress deprecation warning for pkg_resources
+warnings.filterwarnings("ignore", category=DeprecationWarning, module='pkg_resources')
 
 # Third-party imports
 try:
@@ -27,7 +29,6 @@ try:
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.common.action_chains import ActionChains
     from selenium.common.exceptions import TimeoutException
-    from seleniumwire import webdriver as seleniumwire_webdriver  # Import seleniumwire
     from webdriver_manager.chrome import ChromeDriverManager
     
     import google.generativeai as genai
@@ -42,9 +43,6 @@ except ImportError as e:
     print("Please install requirements: pip install -r requirements.txt")
     sys.exit(1)
 
-# Suppress deprecation warning
-warnings.filterwarnings("ignore", category=DeprecationWarning, module='pkg_resources')
-
 # Initialize colorama for Windows
 init(autoreset=True)
 
@@ -55,8 +53,8 @@ class AISearchAgent:
         """Initialize the search agent with configuration."""
         self.load_config(config_file)
         self.setup_logging()
-        self.pc_driver: Optional[seleniumwire_webdriver.Chrome] = None  # Use seleniumwire's webdriver
-        self.mobile_driver: Optional[seleniumwire_webdriver.Chrome] = None
+        self.pc_driver: Optional[webdriver.Chrome] = None
+        self.mobile_driver: Optional[webdriver.Chrome] = None
         self.ai_client = None
         self.pc_search_history: List[str] = []
         self.mobile_search_history: List[str] = []
@@ -151,21 +149,21 @@ class AISearchAgent:
                         continue
                     # Parse proxy line: host:port:username:password or host:port
                     parts = line.split(':')
-                    if len(parts) == 2:
-                        # Format: host:port
-                        proxy = {
-                            'host': parts[0],
-                            'port': parts[1],
-                            'username': None,
-                            'password': None
-                        }
-                    elif len(parts) == 4:
-                        # Format: host:port:username:password
+                    if len(parts) == 4:
+                        # Authenticated proxy
                         proxy = {
                             'host': parts[0],
                             'port': parts[1],
                             'username': parts[2],
                             'password': parts[3]
+                        }
+                    elif len(parts) == 2:
+                        # Non-authenticated proxy
+                        proxy = {
+                            'host': parts[0],
+                            'port': parts[1],
+                            'username': None,
+                            'password': None
                         }
                     else:
                         self.logger.warning(f"{Fore.YELLOW}[WARNING] Invalid proxy format: {line}")
@@ -192,39 +190,23 @@ class AISearchAgent:
 
             # Set proxy if provided
             if proxy:
+                proxy_url = f"{proxy['host']}:{proxy['port']}"
                 if proxy['username'] and proxy['password']:
-                    # Format: http://username:password@host:port
                     proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
-                else:
-                    # Format: http://host:port
-                    proxy_url = f"http://{proxy['host']}:{proxy['port']}"
-                
-                self.pc_driver = seleniumwire_webdriver.Chrome(
-                    service=Service(ChromeDriverManager().install()),
-                    options=chrome_options
-                )
-                self.pc_driver.proxy = proxy_url
-                if proxy['username'] and proxy['password']:
-                    self.pc_driver.header_overrides = {
-                        'Proxy-Authorization': f"Basic {self._encode_proxy_auth(proxy)}"
-                    }
+                chrome_options.add_argument(f"--proxy-server={proxy_url}")
+
+            # Initialize driver
+            if self.config['edge_driver_path'] == 'auto':
+                service = Service(ChromeDriverManager().install())
             else:
-                self.pc_driver = seleniumwire_webdriver.Chrome(
-                    service=Service(ChromeDriverManager().install()),
-                    options=chrome_options
-                )
+                service = Service(self.config['edge_driver_path'])
+            self.pc_driver = webdriver.Chrome(service=service, options=chrome_options)
 
             self.logger.info(f"{Fore.GREEN}[OK] PC Browser initialized successfully in headless mode")
 
         except Exception as e:
             self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize PC Browser: {e}")
             raise
-
-    def _encode_proxy_auth(self, proxy):
-        """Encode proxy authentication credentials."""
-        import base64
-        auth = f"{proxy['username']}:{proxy['password']}"
-        return base64.b64encode(auth.encode()).decode()
 
     def _initialize_mobile_browser(self, proxy=None) -> None:
         """Initialize Chrome browser in Mobile mode with proxy support."""
@@ -242,27 +224,17 @@ class AISearchAgent:
 
             # Set proxy if provided
             if proxy:
+                proxy_url = f"{proxy['host']}:{proxy['port']}"
                 if proxy['username'] and proxy['password']:
-                    # Format: http://username:password@host:port
                     proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
-                else:
-                    # Format: http://host:port
-                    proxy_url = f"http://{proxy['host']}:{proxy['port']}"
-                
-                self.mobile_driver = seleniumwire_webdriver.Chrome(
-                    service=Service(ChromeDriverManager().install()),
-                    options=chrome_options
-                )
-                self.mobile_driver.proxy = proxy_url
-                if proxy['username'] and proxy['password']:
-                    self.mobile_driver.header_overrides = {
-                        'Proxy-Authorization': f"Basic {self._encode_proxy_auth(proxy)}"
-                    }
+                chrome_options.add_argument(f"--proxy-server={proxy_url}")
+
+            # Initialize driver
+            if self.config['edge_driver_path'] == 'auto':
+                service = Service(ChromeDriverManager().install())
             else:
-                self.mobile_driver = seleniumwire_webdriver.Chrome(
-                    service=Service(ChromeDriverManager().install()),
-                    options=chrome_options
-                )
+                service = Service(self.config['edge_driver_path'])
+            self.mobile_driver = webdriver.Chrome(service=service, options=chrome_options)
 
             self.logger.info(f"{Fore.GREEN}[OK] Mobile Browser initialized successfully in headless mode")
 
@@ -728,7 +700,7 @@ class AISearchAgent:
 
             self.logger.info(f"{Fore.GREEN}[OK] Completed processing for {email}")
 
-    def _get_next_proxy(self) -> Dict:
+    def _get_next_proxy(self):
         """Get the next available proxy from the list."""
         if not self.proxies:
             self.logger.warning(f"{Fore.YELLOW}[WARNING] No proxies available")
