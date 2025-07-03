@@ -13,6 +13,8 @@ import csv
 from datetime import datetime
 from typing import List, Optional, Tuple, Dict
 import traceback
+import json
+import warnings
 
 # Third-party imports
 try:
@@ -39,6 +41,9 @@ except ImportError as e:
     print(f"Missing required package: {e}")
     print("Please install requirements: pip install -r requirements.txt")
     sys.exit(1)
+
+# Suppress deprecation warning
+warnings.filterwarnings("ignore", category=DeprecationWarning, module='pkg_resources')
 
 # Initialize colorama for Windows
 init(autoreset=True)
