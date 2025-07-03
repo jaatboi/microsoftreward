@@ -11,7 +11,7 @@ import random
 import logging
 import csv
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 import traceback
 
 # Third-party imports
@@ -135,11 +135,37 @@ class AISearchAgent:
             self.logger.error(f"{Fore.RED}[FAIL] Failed to initialize Gemini AI: {e}")
             raise
 
-    def load_proxies(self, filename='proxies.json'):
-        """Load proxies from a JSON file."""
+    def load_proxies(self, filename='proxy.txt'):
+        """Load proxies from a text file."""
         try:
+            self.proxies = []
             with open(filename, 'r') as f:
-                self.proxies = json.load(f)
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Parse proxy line: host:port:username:password or host:port
+                    parts = line.split(':')
+                    if len(parts) == 2:
+                        # Format: host:port
+                        proxy = {
+                            'host': parts[0],
+                            'port': parts[1],
+                            'username': None,
+                            'password': None
+                        }
+                    elif len(parts) == 4:
+                        # Format: host:port:username:password
+                        proxy = {
+                            'host': parts[0],
+                            'port': parts[1],
+                            'username': parts[2],
+                            'password': parts[3]
+                        }
+                    else:
+                        self.logger.warning(f"{Fore.YELLOW}[WARNING] Invalid proxy format: {line}")
+                        continue
+                    self.proxies.append(proxy)
             self.logger.info(f"{Fore.GREEN}[OK] Loaded {len(self.proxies)} proxies")
             return self.proxies
         except Exception as e:
@@ -161,7 +187,7 @@ class AISearchAgent:
 
             # Set proxy if provided
             if proxy:
-                if 'username' in proxy and 'password' in proxy:
+                if proxy['username'] and proxy['password']:
                     # Format: http://username:password@host:port
                     proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
                 else:
@@ -173,9 +199,10 @@ class AISearchAgent:
                     options=chrome_options
                 )
                 self.pc_driver.proxy = proxy_url
-                self.pc_driver.header_overrides = {
-                    'Proxy-Authorization': f"Basic {self._encode_proxy_auth(proxy)}" if 'username' in proxy else None
-                }
+                if proxy['username'] and proxy['password']:
+                    self.pc_driver.header_overrides = {
+                        'Proxy-Authorization': f"Basic {self._encode_proxy_auth(proxy)}"
+                    }
             else:
                 self.pc_driver = seleniumwire_webdriver.Chrome(
                     service=Service(ChromeDriverManager().install()),
@@ -210,7 +237,7 @@ class AISearchAgent:
 
             # Set proxy if provided
             if proxy:
-                if 'username' in proxy and 'password' in proxy:
+                if proxy['username'] and proxy['password']:
                     # Format: http://username:password@host:port
                     proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['host']}:{proxy['port']}"
                 else:
@@ -222,9 +249,10 @@ class AISearchAgent:
                     options=chrome_options
                 )
                 self.mobile_driver.proxy = proxy_url
-                self.mobile_driver.header_overrides = {
-                    'Proxy-Authorization': f"Basic {self._encode_proxy_auth(proxy)}" if 'username' in proxy else None
-                }
+                if proxy['username'] and proxy['password']:
+                    self.mobile_driver.header_overrides = {
+                        'Proxy-Authorization': f"Basic {self._encode_proxy_auth(proxy)}"
+                    }
             else:
                 self.mobile_driver = seleniumwire_webdriver.Chrome(
                     service=Service(ChromeDriverManager().install()),
@@ -695,7 +723,7 @@ class AISearchAgent:
 
             self.logger.info(f"{Fore.GREEN}[OK] Completed processing for {email}")
 
-    def _get_next_proxy(self):
+    def _get_next_proxy(self) -> Dict:
         """Get the next available proxy from the list."""
         if not self.proxies:
             self.logger.warning(f"{Fore.YELLOW}[WARNING] No proxies available")
