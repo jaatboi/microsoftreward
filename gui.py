@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import threading
 import queue
+import json
 import os
 import sys
 from pathlib import Path
